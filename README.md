@@ -1,6 +1,6 @@
 # Glados自动签到
 
-> 基于 GitHub Actions 的 GLaDOS 自动签到工具，支持多账号与多通道推送（PushDeer / Server酱）。
+> 基于 GitHub Actions 的 GLaDOS 自动签到工具，支持多账号与多通道推送（PushDeer / Server酱 / 企业微信）。
 
 ## 文件结构
 
@@ -63,6 +63,15 @@
 
 - **PushDeer**：添加 `repository secret` 命名为 `PUSHDEER_SENDKEY`，其值对应 PushDeer key（[获取地址](https://www.pushdeer.com/product.html)）。
 - **Server酱**：添加 `repository secret` 命名为 `SERVERCHAN_SENDKEY`，其值对应 Server酱 SendKey（[获取地址](https://sct.ftqq.com/)）。
+- **企业微信群机器人**：添加 `repository secret` 命名为 `WECOM_WEBHOOK_URL`，其值为机器人的**完整 Webhook URL**，格式如下：
+
+  ```text
+  https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的机器人key
+  ```
+
+  在企业微信群中添加支持 Webhook 的群机器人并复制地址，然后进入仓库的 `Settings` → `Secrets and variables` → `Actions` → `New repository secret` 保存。URL 包含机器人密钥，请勿写入源码或公开日志。
+
+  仅使用企业微信时，不需要设置 `PUSHDEER_SENDKEY` 和 `SERVERCHAN_SENDKEY`；签到仍需配置 `GLADOS_COOKIES`。保存后进入 `Actions` → `auto check` → `Run workflow` 手动运行，检查群内消息及日志中的推送结果。文本超过 2048 字节时会截断并附带提示，完整签到结果可在 Actions 日志查看。
 
 ### Star 本仓库
 

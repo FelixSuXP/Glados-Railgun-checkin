@@ -99,6 +99,7 @@ class Config:
 
     ENV_PUSH_KEY = "PUSHDEER_SENDKEY"
     ENV_SERVERCHAN_KEY = "SERVERCHAN_SENDKEY"
+    ENV_WECOM_WEBHOOK_URL = "WECOM_WEBHOOK_URL"
     ENV_COOKIES = "GLADOS_COOKIES"
     ENV_EXCHANGE_PLAN = "GLADOS_EXCHANGE_PLAN"
     ENV_VERBOSE = "GLADOS_VERBOSE"
@@ -122,6 +123,7 @@ class Config:
     def __init__(self):
         self.push_key: str = ""
         self.serverchan_key: str = ""
+        self.wecom_webhook_url: str = ""
         self.cookies_list: List[str] = []
         self.exchange_plan: str = self.DEFAULT_EXCHANGE_PLAN
         self.verbose: bool = self.DEFAULT_VERBOSE
@@ -131,6 +133,7 @@ class Config:
         """加载配置"""
         push_key_env: Optional[str] = os.environ.get(self.ENV_PUSH_KEY)
         serverchan_key_env: Optional[str] = os.environ.get(self.ENV_SERVERCHAN_KEY)
+        self.wecom_webhook_url = os.environ.get(self.ENV_WECOM_WEBHOOK_URL, "").strip()
         raw_cookies_env: Optional[str] = os.environ.get(self.ENV_COOKIES)
         exchange_plan_env: Optional[str] = os.environ.get(self.ENV_EXCHANGE_PLAN)
         verbose_env: Optional[str] = os.environ.get(self.ENV_VERBOSE)
@@ -168,6 +171,7 @@ class Config:
 
         logger.info(f"{LogEmoji.INFO} 共加载了 {len(self.cookies_list)} 个 Cookie 用于签到。")
         logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_PUSH_KEY} {'已设置' if push_key_env else '未设置'}，{self.ENV_SERVERCHAN_KEY} {'已设置' if serverchan_key_env else '未设置'}。")
+        logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_WECOM_WEBHOOK_URL} {'已设置' if self.wecom_webhook_url else '未设置'}。")
         logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_EXCHANGE_PLAN}: {self.exchange_plan}。")
 
         if verbose_env is not None:
@@ -477,7 +481,7 @@ class CheckinResult:
 
 def render_payload(payload: dict, line_sep: str = "\n") -> str:
     """将结构化签到结果渲染为文本。line_sep 控制行分隔：
-    PushDeer 用 \\n（原生换行），Server酱 用 '  \\n'（Markdown 硬换行，避免段间空行）。"""
+    PushDeer / 企业微信 用 \\n（原生换行），Server酱 用 '  \\n'（Markdown 硬换行，避免段间空行）。"""
     lines = []
     for r in payload.get("rows", []):
         line = (
@@ -554,6 +558,43 @@ class ServerChanBackend(PushBackend):
             return False
 
 
+class WeComBackend(PushBackend):
+    """企业微信群机器人 Webhook 后端。"""
+
+    name = "企业微信"
+    MAX_CONTENT_BYTES = 2048
+
+    def __init__(self, webhook_url: str):
+        self.webhook_url = webhook_url
+
+    def send(self, title: str, payload: dict) -> bool:
+        content = f"{title}\n\n{self._render(payload)}"
+        encoded = content.encode("utf-8")
+        if len(encoded) > self.MAX_CONTENT_BYTES:
+            suffix = "\n…（内容已截断，完整结果见 Actions 日志）"
+            limit = self.MAX_CONTENT_BYTES - len(suffix.encode("utf-8"))
+            content = encoded[:limit].decode("utf-8", "ignore") + suffix
+
+        try:
+            response = requests.post(
+                self.webhook_url,
+                json={"msgtype": "text", "text": {"content": content}},
+                timeout=(10, 30),
+            )
+            response.raise_for_status()
+            result = response.json()
+            errcode = result.get("errcode") if isinstance(result, dict) else None
+            if type(errcode) is int and errcode == 0:
+                return True
+
+            # 只记录数字错误码，不输出可能包含 Webhook 密钥的响应或异常详情。
+            safe_code = errcode if type(errcode) is int else "未知"
+            logger.error(f"{LogEmoji.ERROR} [{self.name}] 推送失败，errcode={safe_code}")
+        except (requests.RequestException, ValueError) as exc:
+            logger.error(f"{LogEmoji.ERROR} [{self.name}] 推送失败: {type(exc).__name__}")
+        return False
+
+
 class PushService:
     """推送服务：聚合多个后端，向全部已配置后端发送（都发）"""
 
@@ -564,11 +605,13 @@ class PushService:
                 self.backends.append(PushDeerBackend(config.push_key))
             if getattr(config, "serverchan_key", ""):
                 self.backends.append(ServerChanBackend(config.serverchan_key))
+            if getattr(config, "wecom_webhook_url", ""):
+                self.backends.append(WeComBackend(config.wecom_webhook_url))
 
     def send(self, title: str, payload: dict) -> bool:
         """向所有已配置后端发送推送，只要有一个成功即视为成功"""
         if not self.backends:
-            logger.info(f"{LogEmoji.WARNING} 未配置推送密钥，跳过。")
+            logger.info(f"{LogEmoji.WARNING} 未配置推送通道，跳过。")
             return False
 
         backend_names = "、".join(b.name for b in self.backends)

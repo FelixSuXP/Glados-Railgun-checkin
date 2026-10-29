@@ -50,6 +50,7 @@ jobs:
       env:
         PUSHDEER_SENDKEY: ${{ secrets.PUSHDEER_SENDKEY }}
         SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+        WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
         GLADOS_COOKIES: ${{ secrets.GLADOS_COOKIES }}
         GLADOS_EXCHANGE_PLAN: ${{ secrets.GLADOS_EXCHANGE_PLAN }}
         GLADOS_VERBOSE: ${{ secrets.GLADOS_VERBOSE }}
