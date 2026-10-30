@@ -75,7 +75,7 @@
 
 ### 定时运行
 
-`auto check` 工作流使用 UTC 表达式 `18 1,4 * * *`，对应北京时间每天 **09:18、12:18**。Fork 后需在 `Actions` 页面启用仓库 Actions，并启用 `auto check` 工作流。
+`auto check` 工作流显式使用上海时区 `Asia/Shanghai`，使用 cron 表达式 `20 1,5 * * *`，对应北京时间每天 **01:20、05:20**。Fork 后需在 `Actions` 页面启用仓库 Actions，并启用 `auto check` 工作流。
 
 GitHub 的定时事件可能延迟或在高负载时被丢弃，不保证准点触发。判断是否自动运行，请检查运行记录的事件类型是否为 `schedule`；手动运行（`workflow_dispatch`）成功不能证明定时触发正常。需要立即签到时可使用 `Run workflow`。
 

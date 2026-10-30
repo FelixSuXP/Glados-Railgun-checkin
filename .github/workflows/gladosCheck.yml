@@ -8,8 +8,9 @@ on:
       - 'README.md'
       - 'imgs/**'
   schedule:
-    # UTC 01:18 / 04:18，对应北京时间每天 09:18 / 12:18。
-    - cron: '18 1,4 * * *'
+    # 上海时间每天 01:20、05:20。
+    - cron: '20 1,5 * * *'
+      timezone: Asia/Shanghai
 
 jobs:
   build:
