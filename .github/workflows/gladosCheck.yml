@@ -1,16 +1,8 @@
 name: auto check
 
 on:
+  # 自动签到已迁移至青龙，保留手动触发用于应急排查。
   workflow_dispatch:
-  push:
-    branches: [ master ]
-    paths-ignore:
-      - 'README.md'
-      - 'imgs/**'
-  schedule:
-    # 上海时间每天 01:20、05:20。
-    - cron: '20 1,5 * * *'
-      timezone: Asia/Shanghai
 
 jobs:
   build:

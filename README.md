@@ -73,11 +73,25 @@
 
   仅使用企业微信时，不需要设置 `PUSHDEER_SENDKEY` 和 `SERVERCHAN_SENDKEY`；签到仍需配置 `GLADOS_COOKIES`。保存后进入 `Actions` → `auto check` → `Run workflow` 手动运行，检查群内消息及日志中的推送结果。文本超过 2048 字节时会截断并附带提示，完整签到结果可在 Actions 日志查看。
 
-### 定时运行
+### 青龙部署（当前运行方式）
 
-`auto check` 工作流显式使用上海时区 `Asia/Shanghai`，使用 cron 表达式 `20 1,5 * * *`，对应北京时间每天 **01:20、05:20**。Fork 后需在 `Actions` 页面启用仓库 Actions，并启用 `auto check` 工作流。
+自动签到由青龙执行，面板/容器时区需为 `Asia/Shanghai`，每天北京时间 **01:20、05:20** 运行。
 
-GitHub 的定时事件可能延迟或在高负载时被丢弃，不保证准点触发。判断是否自动运行，请检查运行记录的事件类型是否为 `schedule`；手动运行（`workflow_dispatch`）成功不能证明定时触发正常。需要立即签到时可使用 `Run workflow`。
+1. 在「订阅管理」创建公开仓库订阅，链接为 `https://github.com/FelixSuXP/Glados-Railgun-checkin.git`，分支为 `master`，白名单为 `checkin.py`，依赖文件为 `logging_config.py`，文件后缀为 `py`。关闭自动添加/删除任务，手动维护下面的签到任务。订阅同步规则可设为 `10 0 * * *`（每天 00:10 更新脚本）。
+2. Python3 需要 `requests`、`pypushdeer`、`serverchan-sdk`。可在依赖管理安装；若安装队列未完成，可在本订阅「执行后」配置以下检查及安装命令：
+
+   ```sh
+   python3 -c "import requests, pypushdeer, serverchan_sdk" || python3 -m pip install --disable-pip-version-check --no-input requests pypushdeer serverchan-sdk
+   python3 -c "import requests, pypushdeer, serverchan_sdk; print('GLaDOS Python dependencies ready')"
+   ```
+
+3. 在「环境变量」保存并启用 `GLADOS_COOKIES` 和 `WECOM_WEBHOOK_URL`。不要把密钥写入脚本或命令。`GLADOS_EXCHANGE_PLAN` 为可选，不设置时不自动兑换；`GLADOS_VERBOSE` 可设为 `false`。GitHub Secrets 无法读回，迁移时需在青龙重新填写。
+4. 在「定时任务」创建 `GLaDOS / Railgun 签到`，命令为 `task FelixSuXP_Glados-Railgun-checkin_master/checkin.py`，定时规则为 `20 1,5 * * *`，选择单实例。「执行前」也可加入上述第一行依赖检查及安装命令，以便容器重建后自动补齐依赖。订阅唯一值不同时，按实际脚本目录调整命令。
+5. 手动运行一次，检查任务日志中的签到状态及企业微信推送结果。脚本退出码为 0 并不代表所有域名签到成功，仍需检查日志中的业务状态。
+
+### GitHub Actions 手动备用
+
+`auto check` 仅保留 `workflow_dispatch` 手动触发，已移除 `push` 和 `schedule` 自动触发，避免与青龙重复签到。需要应急排查时，在 GitHub「Actions」→「auto check」→「Run workflow」手动运行；凭据仍从仓库 Secrets 加载。
 
 ### Star 本仓库
 
