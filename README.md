@@ -73,6 +73,12 @@
 
   仅使用企业微信时，不需要设置 `PUSHDEER_SENDKEY` 和 `SERVERCHAN_SENDKEY`；签到仍需配置 `GLADOS_COOKIES`。保存后进入 `Actions` → `auto check` → `Run workflow` 手动运行，检查群内消息及日志中的推送结果。文本超过 2048 字节时会截断并附带提示，完整签到结果可在 Actions 日志查看。
 
+### 定时运行
+
+`auto check` 工作流使用 UTC 表达式 `18 1,4 * * *`，对应北京时间每天 **09:18、12:18**。Fork 后需在 `Actions` 页面启用仓库 Actions，并启用 `auto check` 工作流。
+
+GitHub 的定时事件可能延迟或在高负载时被丢弃，不保证准点触发。判断是否自动运行，请检查运行记录的事件类型是否为 `schedule`；手动运行（`workflow_dispatch`）成功不能证明定时触发正常。需要立即签到时可使用 `Run workflow`。
+
 ### Star 本仓库
 
 ![图片加载失败](imgs/4.png)
