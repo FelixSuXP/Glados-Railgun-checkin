@@ -71,7 +71,9 @@
 
   在企业微信群中添加支持 Webhook 的群机器人并复制地址，然后进入仓库的 `Settings` → `Secrets and variables` → `Actions` → `New repository secret` 保存。URL 包含机器人密钥，请勿写入源码或公开日志。
 
-  仅使用企业微信时，不需要设置 `PUSHDEER_SENDKEY` 和 `SERVERCHAN_SENDKEY`；签到仍需配置 `GLADOS_COOKIES`。保存后进入 `Actions` → `auto check` → `Run workflow` 手动运行，检查群内消息及日志中的推送结果。文本超过 2048 字节时会截断并附带提示，完整签到结果可在 Actions 日志查看。
+  仅使用企业微信时，不需要设置 `PUSHDEER_SENDKEY` 和 `SERVERCHAN_SENDKEY`；签到仍需配置 `GLADOS_COOKIES`。保存后进入 `Actions` → `auto check` → `Run workflow` 手动运行，检查群内消息及日志中的推送结果。文本超过 2048 字节时会截断并附带提示，完整签到结果可在任务日志查看。
+
+通知按站点和账号（Cookie 在 `GLADOS_COOKIES` 中的顺序）分块展示，缺失数据显示“未获取”，重复签到显示“今日已签到”。积分不足显示中文余额和兑换门槛，不再输出冗长小数。只有同一 Cookie 已在另一站点签到成功或今日已签到时，才把该 Cookie 的无权限项合并为“跨站无权限”；两个站点均无权限、网络或设备错误仍计入签到失败。
 
 ### 青龙部署（当前运行方式）
 

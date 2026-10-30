@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass
 from enum import Enum
@@ -340,13 +341,14 @@ class API:
 
         return raw
 
-    def _parse_checkin(self, raw: Optional[Dict]) -> Dict[str, Union[str, CheckinStatus]]:
+    def _parse_checkin(self, raw: Optional[Dict]) -> Dict[str, Union[str, bool, CheckinStatus]]:
         """解析签到响应为结果字典"""
-        result: Dict[str, Union[str, CheckinStatus]] = {
+        result: Dict[str, Union[str, bool, CheckinStatus]] = {
             "status": "签到失败",
             "points": "0",
             "message": "",
             "code": CheckinStatus.FAILURE,
+            "permission_denied": False,
         }
 
         if not raw:
@@ -354,6 +356,8 @@ class API:
             return result
 
         code = raw.get("code", -2)
+        # 不能用通用 FAILURE 枚举判断无权限，网络/设备等错误也使用该枚举。
+        result["permission_denied"] = raw.get("code") == -2
         message = raw.get("message", "无消息字段")
         points = str(raw.get("points", 0))
 
@@ -382,7 +386,7 @@ class API:
                 else:
                     self._log("error", LogEmoji.ERROR, f"服务端拒绝签到(code=4, reason={reason})，请检查账户风控状态", force=True)
             elif code == -2:
-                self._log("error", LogEmoji.ERROR, f"无权限(code=-2)：Cookie 可能已失效，请重新登录 {self.domain} 刷新 Cookie 并更新仓库 Secret GLADOS_COOKIES 后重试", force=True)
+                self._log("error", LogEmoji.ERROR, f"无权限(code=-2)：Cookie 可能不适用于 {self.domain} 或已失效，请检查环境变量 GLADOS_COOKIES", force=True)
             else:
                 self._log("error", LogEmoji.ERROR, f"未预期响应(code={code}, message={message})，请检查 GLaDOS 服务状态或 Cookie", force=True)
             result["code"] = CheckinStatus.FAILURE
@@ -473,28 +477,80 @@ class CheckinResult:
     points_total: str = "None"
     exchange: str = "未兑换"
     code: CheckinStatus = CheckinStatus.FAILURE  # 0: 成功, 1: 重复, -2: 失败
+    message: str = ""
+    permission_denied: bool = False
 
     def to_dict(self) -> Dict[str, Union[str, CheckinStatus]]:
         result_dict = asdict(self)
         return result_dict
 
 
+def display_metric(value, unit: str) -> str:
+    """隐藏接口缺失值，统一单位，避免出现 None 天/None 积分。"""
+    text = str(value).strip()
+    if text.endswith(unit):
+        text = text[:-len(unit)].strip()
+    if text.lower() in ("", "none", "null"):
+        return "未获取"
+    return f"{text} {unit}"
+
+
+def display_exchange(value: str) -> str:
+    """翻译常见兑换提示，保留其他错误的具体原因。"""
+    text = str(value or "").strip()
+    insufficient = re.search(
+        r"Not enough points\.\s*Need\s+(\d+(?:\.\d+)?),\s*have\s+(\d+(?:\.\d+)?)",
+        text, re.IGNORECASE,
+    )
+    if insufficient:
+        need, have = insufficient.groups()
+        need, have = (n.rstrip("0").rstrip(".") if "." in n else n for n in (need, have))
+        return f"积分不足，暂未兑换（当前 {have}，需要 {need}）"
+    if text.lower() in ("兑换失败: no permission", "兑换失败: 没有权限"):
+        return "无访问权限，无法兑换"
+    if text == "未配置兑换计划，跳过自动兑换":
+        return "未配置自动兑换"
+    return text
+
+
 def render_payload(payload: dict, line_sep: str = "\n") -> str:
-    """将结构化签到结果渲染为文本。line_sep 控制行分隔：
-    PushDeer / 企业微信 用 \\n（原生换行），Server酱 用 '  \\n'（Markdown 硬换行，避免段间空行）。"""
-    lines = []
+    """按账号和站点分块展示；Server酱通过 line_sep 使用 Markdown 硬换行。"""
+    blocks = []
+    cross_site = []
     for r in payload.get("rows", []):
-        line = (
-            f"#{r['index']:<2}  {r['emoji']} {r['status']:<6}  {r['domain']:<13}  "
-            f"获得 {r['points']} 积分 · 剩余 {r['days']} · 总 {r['points_total']}"
-        )
-        if r.get("exchange"):
-            line += f" · {r['exchange']}"
-        lines.append(line)
+        account = r.get("cookie_index", r["index"])
+        site = {"glados.cloud": "GLaDOS", "railgun.info": "Railgun"}.get(r["domain"], r["domain"])
+        if r.get("cross_site"):
+            cross_site.append(f"账号 {account} → {site}")
+            continue
+        status = "今日已签到" if r["status"] == "重复签到" else r["status"]
+        lines = [f"{r['emoji']} {site} · 账号 {account} · {status}"]
+        failed = r["status"] == "签到失败"
+        if failed:
+            message = r.get("message") or "原因未返回，请查看任务日志"
+            if r.get("permission_denied") or message.lower() in ("no permission", "没有权限"):
+                message = "无访问权限，请检查该站点 Cookie 是否有效"
+            lines.append(f"原因：{message}")
+        metrics = []
+        if not failed and status != "今日已签到":
+            points = display_metric(r.get("points"), "积分")
+            metrics.append(f"本次 +{points}" if points != "未获取" else "本次积分未获取")
+        for label, key, unit in (("剩余", "days", "天"), ("总积分", "points_total", "积分")):
+            value = display_metric(r.get(key), unit)
+            if not failed or value != "未获取":
+                metrics.append(f"{label} {value}")
+        if metrics:
+            lines.append("｜".join(metrics))
+        exchange = display_exchange(r.get("exchange", ""))
+        if exchange and not r.get("permission_denied"):
+            lines.append(f"兑换：{exchange}")
+        blocks.append(line_sep.join(lines))
+    if cross_site:
+        blocks.append(f"ℹ️ 跨站无权限 {len(cross_site)} 项：{'；'.join(cross_site)}。同一账号已在其他站点签到，不计入签到失败。")
     note = payload.get("note")
     if note:
-        lines.append(note)
-    return line_sep.join(lines)
+        blocks.append(note)
+    return (line_sep * 2).join(blocks)
 
 
 class PushBackend:
@@ -571,7 +627,7 @@ class WeComBackend(PushBackend):
         content = f"{title}\n\n{self._render(payload)}"
         encoded = content.encode("utf-8")
         if len(encoded) > self.MAX_CONTENT_BYTES:
-            suffix = "\n…（内容已截断，完整结果见 Actions 日志）"
+            suffix = "\n…（内容已截断，完整结果见任务日志）"
             limit = self.MAX_CONTENT_BYTES - len(suffix.encode("utf-8"))
             content = encoded[:limit].decode("utf-8", "ignore") + suffix
 
@@ -676,6 +732,9 @@ class Checker:
             checkin_result = api.checkin(cookie)
             result.status = checkin_result["status"]
             result.code = checkin_result.get("code", CheckinStatus.FAILURE)
+            result.points = checkin_result.get("points", "0")
+            result.message = checkin_result.get("message", "")
+            result.permission_denied = checkin_result.get("permission_denied", False)
 
             self._log(cookie_idx, domain, LogEmoji.POINTS, "查询总积分")
             points_str, points_num = api.get_points(cookie)
@@ -706,19 +765,26 @@ class Checker:
 
         success_count = sum(1 for r in results if r["code"] == CheckinStatus.SUCCESS)
         repeat_count = sum(1 for r in results if r["code"] == CheckinStatus.REPEAT)
-        fail_count = sum(1 for r in results if r["code"] == CheckinStatus.FAILURE)
+        raw_fail_count = sum(1 for r in results if r["code"] == CheckinStatus.FAILURE)
+        working_sites = {}
+        for r in results:
+            if r["code"] in (CheckinStatus.SUCCESS, CheckinStatus.REPEAT):
+                working_sites.setdefault(r["cookie_index"], set()).add(r["domain"])
 
         status_emoji_map = {
             CheckinStatus.SUCCESS: LogEmoji.SUCCESS,
             CheckinStatus.REPEAT: LogEmoji.REPEAT,
             CheckinStatus.FAILURE: LogEmoji.ERROR,
         }
-        title = f"GLaDOS 签到 · 成功 {success_count} · 失败 {fail_count} · 重复 {repeat_count}"
-
         rows = []
         for i, res in enumerate(results, 1):
+            cross_site = (
+                res["code"] == CheckinStatus.FAILURE and res["permission_denied"]
+                and bool(working_sites.get(res["cookie_index"], set()) - {res["domain"]})
+            )
             rows.append({
                 "index": i,
+                "cookie_index": res["cookie_index"],
                 "emoji": status_emoji_map.get(res["code"], LogEmoji.ERROR),
                 "status": res["status"],
                 "domain": res["domain"],
@@ -726,14 +792,24 @@ class Checker:
                 "days": res["days"],
                 "points_total": res["points_total"],
                 "exchange": res["exchange"],
+                "message": res["message"],
+                "permission_denied": res["permission_denied"],
+                "cross_site": cross_site,
             })
 
+        cross_site_count = sum(1 for r in rows if r["cross_site"])
+        fail_count = raw_fail_count - cross_site_count
+        title = f"GLaDOS / Railgun 签到 · 成功 {success_count} · 已签到 {repeat_count} · 失败 {fail_count}"
+        if cross_site_count:
+            title += f" · 跨站无权限 {cross_site_count}"
         return {
             "title": title,
             "rows": rows,
             "success": success_count,
             "fail": fail_count,
             "repeat": repeat_count,
+            "cross_site": cross_site_count,
+            "raw_fail": raw_fail_count,
         }
 
 
